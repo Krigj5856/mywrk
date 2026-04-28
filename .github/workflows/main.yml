@@ -1,0 +1,85 @@
+name: Miner Automation - W1, W2, W3
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_choice:
+        description: 'Select workflow to run'
+        required: true
+        default: 'W1'
+        type: choice
+        options:
+          - 'W1 - Terminals 1 to 30'
+          - 'W2 - Terminals 31 to 60'
+          - 'W3 - Terminals 61 to 90'
+
+jobs:
+  mining:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Show System Info
+      shell: pwsh
+      run: |
+        Write-Host "=== SYSTEM INFORMATION ==="
+        Write-Host ""
+        Write-Host "CPU:"
+        Get-WmiObject -Class Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed | Format-List
+        Write-Host ""
+        Write-Host "RAM:"
+        $ram = Get-WmiObject -Class Win32_ComputerSystem
+        Write-Host "Total Physical Memory: $([math]::Round($ram.TotalPhysicalMemory / 1GB, 0)) GB"
+        Write-Host ""
+        Write-Host "OS:"
+        Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion
+        Write-Host ""
+        Write-Host "Disk:"
+        Get-PSDrive -Name C | Select-Object Used, Free
+    
+    - name: Install Firefox
+      run: |
+        choco install firefox -y
+      shell: pwsh
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests psutil pillow
+    
+    - name: Run Workflow W1
+      if: github.event.inputs.workflow_choice == 'W1 - Terminals 1 to 30'
+      run: python miner_w1_w2_w3.py --workflow W1
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    
+    - name: Run Workflow W2
+      if: github.event.inputs.workflow_choice == 'W2 - Terminals 31 to 60'
+      run: python miner_w1_w2_w3.py --workflow W2
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    
+    - name: Run Workflow W3
+      if: github.event.inputs.workflow_choice == 'W3 - Terminals 61 to 90'
+      run: python miner_w1_w2_w3.py --workflow W3
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: miner-logs
+        path: miner_monitor.log
+        retention-days: 7
