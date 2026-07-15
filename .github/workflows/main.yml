@@ -45,10 +45,79 @@ jobs:
         Write-Host "Disk:"
         Get-PSDrive -Name C | Select-Object Used, Free
     
-    - name: Install Firefox
-      run: |
-        choco install firefox -y
+    - name: Install Firefox (Direct Download)
       shell: pwsh
+      run: |
+        Write-Host "========================================"
+        Write-Host "INSTALLING FIREFOX"
+        Write-Host "========================================"
+        Write-Host ""
+        
+        $url = "https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US"
+        $installer = "$env:TEMP\FirefoxSetup.exe"
+        $firefoxPath = "C:\Program Files\Mozilla Firefox\firefox.exe"
+        
+        # Download with retry
+        $maxRetries = 3
+        $retryCount = 0
+        $downloaded = $false
+        
+        do {
+          try {
+            Write-Host "Download attempt $($retryCount + 1) of $maxRetries"
+            Write-Host "Downloading from: $url"
+            Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing -ErrorAction Stop
+            $downloaded = $true
+            Write-Host "✅ Download complete! File size: $([math]::Round((Get-Item $installer).Length / 1MB, 2)) MB"
+          } catch {
+            Write-Host "❌ Download failed: $_"
+            $retryCount++
+            if ($retryCount -lt $maxRetries) {
+              Write-Host "Retrying in 10 seconds..."
+              Start-Sleep -Seconds 10
+            }
+          }
+        } while (-not $downloaded -and $retryCount -lt $maxRetries)
+        
+        if (-not $downloaded) {
+          Write-Host "❌ Failed to download Firefox after $maxRetries attempts"
+          exit 1
+        }
+        
+        Write-Host ""
+        Write-Host "Installing Firefox silently..."
+        $process = Start-Process -FilePath $installer -ArgumentList "/S" -Wait -PassThru
+        
+        if ($process.ExitCode -eq 0) {
+          Write-Host "✅ Installation completed successfully!"
+        } else {
+          Write-Host "⚠️ Installation exit code: $($process.ExitCode)"
+        }
+        
+        # Verify installation
+        Write-Host ""
+        Write-Host "Verifying installation..."
+        if (Test-Path $firefoxPath) {
+          Write-Host "✅ Firefox installed at: $firefoxPath"
+          $version = & $firefoxPath --version 2>$null
+          if ($version) {
+            Write-Host "✅ Version: $version"
+          }
+        } else {
+          Write-Host "❌ Firefox installation failed - file not found!"
+          Write-Host "Checking alternative locations..."
+          Get-ChildItem "C:\Program Files" -Filter "firefox.exe" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "Found: $($_.FullName)"
+          }
+          exit 1
+        }
+        
+        # Cleanup
+        Remove-Item $installer -Force -ErrorAction SilentlyContinue
+        Write-Host ""
+        Write-Host "========================================"
+        Write-Host "FIREFOX INSTALLATION COMPLETE"
+        Write-Host "========================================"
     
     - name: Install dependencies
       run: |
@@ -83,3 +152,4 @@ jobs:
         name: miner-logs
         path: miner_monitor.log
         retention-days: 7
+        if-no-files-found: warn
