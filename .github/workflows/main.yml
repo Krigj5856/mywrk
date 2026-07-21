@@ -1,4 +1,4 @@
-    name: Miner Automation - W1, W2, W3
+name: Miner Automation - W1, W2, W3
 
 on:
   workflow_dispatch:
