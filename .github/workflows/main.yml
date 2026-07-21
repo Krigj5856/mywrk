@@ -1,1 +1,155 @@
+    name: Miner Automation - W1, W2, W3
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_choice:
+        description: 'Select workflow to run'
+        required: true
+        default: 'W1'
+        type: choice
+        options:
+          - 'W1 - Terminals 1 to 30'
+          - 'W2 - Terminals 31 to 60'
+          - 'W3 - Terminals 61 to 90'
+
+jobs:
+  mining:
+    runs-on: windows-latest
+    timeout-minutes: 360
     
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Show System Info
+      shell: pwsh
+      run: |
+        Write-Host "=== SYSTEM INFORMATION ==="
+        Write-Host ""
+        Write-Host "CPU:"
+        Get-WmiObject -Class Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed | Format-List
+        Write-Host ""
+        Write-Host "RAM:"
+        $ram = Get-WmiObject -Class Win32_ComputerSystem
+        Write-Host "Total Physical Memory: $([math]::Round($ram.TotalPhysicalMemory / 1GB, 0)) GB"
+        Write-Host ""
+        Write-Host "OS:"
+        Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion
+        Write-Host ""
+        Write-Host "Disk:"
+        Get-PSDrive -Name C | Select-Object Used, Free
+    
+    - name: Install Firefox (Direct Download)
+      shell: pwsh
+      run: |
+        Write-Host "========================================"
+        Write-Host "INSTALLING FIREFOX"
+        Write-Host "========================================"
+        Write-Host ""
+        
+        $url = "https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US"
+        $installer = "$env:TEMP\FirefoxSetup.exe"
+        $firefoxPath = "C:\Program Files\Mozilla Firefox\firefox.exe"
+        
+        # Download with retry
+        $maxRetries = 3
+        $retryCount = 0
+        $downloaded = $false
+        
+        do {
+          try {
+            Write-Host "Download attempt $($retryCount + 1) of $maxRetries"
+            Write-Host "Downloading from: $url"
+            Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing -ErrorAction Stop
+            $downloaded = $true
+            Write-Host "✅ Download complete! File size: $([math]::Round((Get-Item $installer).Length / 1MB, 2)) MB"
+          } catch {
+            Write-Host "❌ Download failed: $_"
+            $retryCount++
+            if ($retryCount -lt $maxRetries) {
+              Write-Host "Retrying in 10 seconds..."
+              Start-Sleep -Seconds 10
+            }
+          }
+        } while (-not $downloaded -and $retryCount -lt $maxRetries)
+        
+        if (-not $downloaded) {
+          Write-Host "❌ Failed to download Firefox after $maxRetries attempts"
+          exit 1
+        }
+        
+        Write-Host ""
+        Write-Host "Installing Firefox silently..."
+        $process = Start-Process -FilePath $installer -ArgumentList "/S" -Wait -PassThru
+        
+        if ($process.ExitCode -eq 0) {
+          Write-Host "✅ Installation completed successfully!"
+        } else {
+          Write-Host "⚠️ Installation exit code: $($process.ExitCode)"
+        }
+        
+        # Verify installation
+        Write-Host ""
+        Write-Host "Verifying installation..."
+        if (Test-Path $firefoxPath) {
+          Write-Host "✅ Firefox installed at: $firefoxPath"
+          $version = & $firefoxPath --version 2>$null
+          if ($version) {
+            Write-Host "✅ Version: $version"
+          }
+        } else {
+          Write-Host "❌ Firefox installation failed - file not found!"
+          Write-Host "Checking alternative locations..."
+          Get-ChildItem "C:\Program Files" -Filter "firefox.exe" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "Found: $($_.FullName)"
+          }
+          exit 1
+        }
+        
+        # Cleanup
+        Remove-Item $installer -Force -ErrorAction SilentlyContinue
+        Write-Host ""
+        Write-Host "========================================"
+        Write-Host "FIREFOX INSTALLATION COMPLETE"
+        Write-Host "========================================"
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests psutil pillow
+    
+    - name: Run Workflow W1
+      if: github.event.inputs.workflow_choice == 'W1 - Terminals 1 to 30'
+      run: python miner_w1_w2_w3.py --workflow W1
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    
+    - name: Run Workflow W2
+      if: github.event.inputs.workflow_choice == 'W2 - Terminals 31 to 60'
+      run: python miner_w1_w2_w3.py --workflow W2
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    
+    - name: Run Workflow W3
+      if: github.event.inputs.workflow_choice == 'W3 - Terminals 61 to 90'
+      run: python miner_w1_w2_w3.py --workflow W3
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: miner-logs
+        path: miner_monitor.log
+        retention-days: 7
+        if-no-files-found: warn
